@@ -1,0 +1,107 @@
+name: "IaC: Cloudflare Create"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to run IaC
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      action:
+        description: Action to perform
+        required: true
+        type: choice
+        default: apply
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: Plan and Apply
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    defaults:
+      run:
+        working-directory: infra/iac/cloudflare
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      TF_STATE_SAS_TOKEN: ${{ secrets.TF_STATE_SAS_TOKEN }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CF_API_TOKEN }}
+
+    steps:
+      - name: Checkout pipeline repo
+        uses: actions/checkout@v4
+
+      - name: Generate token for IaC repo (read)
+        uses: actions/create-github-app-token@v1
+        id: iac-token
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: valoriz
+          repositories: streakjs-common-infra
+
+      - name: Checkout IaC repo
+        uses: actions/checkout@v4
+        with:
+          repository: valoriz/streakjs-common-infra
+          ref: main
+          token: ${{ steps.iac-token.outputs.token }}
+          path: infra
+
+      - name: Read IAC config
+        working-directory: .
+        env:
+          ENV_NAME: ${{ github.event.inputs.environment }}
+          CONFIG_FILE: .github/iac-config.json
+        run: |
+          chmod +x infra/iac/cloudflare/scripts/read-iac-config.sh
+          infra/iac/cloudflare/scripts/read-iac-config.sh
+
+      - name: Read worker secrets
+        working-directory: .
+        env:
+          WORKER_SECRETS: ${{ secrets.WORKER_SECRETS }}
+        run: |
+          [[ -z "$WORKER_SECRETS" ]] && WORKER_SECRETS="{}"
+          echo "$WORKER_SECRETS" | jq empty || { echo "❌ WORKER_SECRETS secret is not valid JSON"; exit 1; }
+          echo "TF_VAR_worker_secrets=$(echo "$WORKER_SECRETS" | jq -c .)" >> "$GITHUB_ENV"
+
+      - name: Build cloudflare settings object
+        working-directory: .
+        run: |
+          echo "TF_VAR_cloudflare_settings=$(jq -n -c             --arg r2_bucket_location "$CF_R2_BUCKET_LOCATION"             --arg worker_compatibility_date "$CF_WORKER_COMPATIBILITY_DATE"             --argjson manage_zone_resources "$([ "$CF_MANAGE_ZONE_RESOURCES" = "true" ] && echo true || echo false)"             --arg security_contact "$CF_SECURITY_CONTACT"             --arg dmarc_policy "$CF_DMARC_POLICY"             --arg dmarc_rua "$CF_DMARC_RUA"             '{r2_bucket_location: $r2_bucket_location, worker_compatibility_date: $worker_compatibility_date, manage_zone_resources: $manage_zone_resources, security_contact: $security_contact, dmarc_policy: $dmarc_policy, dmarc_rua: $dmarc_rua}')" >> "$GITHUB_ENV"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (dynamic backend)
+        run: |
+          STATE_KEY="streakjs-clients/${PROJECT_NAME}/${{ github.event.inputs.environment }}.terraform.tfstate"
+          SAS_TOKEN="${TF_STATE_SAS_TOKEN#\?}"
+
+          terraform init -reconfigure             -backend-config="resource_group_name=${TF_STATE_RESOURCE_GROUP}"             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}"             -backend-config="container_name=${TF_STATE_CONTAINER}"             -backend-config="sas_token=${SAS_TOKEN}"             -backend-config="key=${STATE_KEY}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        run: terraform apply -auto-approve tfplan
