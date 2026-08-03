@@ -1,0 +1,97 @@
+{
+  "_comment": "Shared values are defaults for all environments. CloudflareIaC Self-Service Platform configuration.",
+  "project_name": "streak-platform-diljith",
+  "cloudflare": {
+    "account_id": "cd7968b96a90c6ff311271755fa5224e",
+    "r2_bucket_location": "apac",
+    "worker_compatibility_date": "2024-06-01",
+    "security_contact": "mailto:security@streak-platform-diljith.com",
+    "dmarc_policy": "quarantine",
+    "dmarc_rua": "mailto:dmarc-reports@streak-platform-diljith.com"
+  },
+  "extra_variables": {
+    "SHARED_CDN_PREFIX": "https://assets.streak-platform-diljith.com"
+  },
+  "extra_secret_vars": [
+    "SANITY_AUTH_TOKEN"
+  ],
+  "environments": {
+    "dev": {
+      "cloudflare": {
+        "manage_zone_resources": "false"
+      },
+      "extra_variables": {
+        "DEV_MODE": "true"
+      },
+      "applications": [
+        {
+          "type": "worker",
+          "platform": "cloudflare",
+          "name": "web-streakjs",
+          "worker_name": "web-streak-platform-diljith-streakjs-dev",
+          "worker_script_path": "iac/cloudflare/scripts/web-streakjs-cf-worker.js",
+          "r2_bucket_name": "web-streak-platform-diljith-streakjs-deployments-dev-001",
+          "secret_vars": [],
+          "env_vars": {
+            "ENVIRONMENT": "development"
+          },
+          "worker_custom_domains": []
+        }
+      ]
+    },
+    "qa": {
+      "cloudflare": {
+        "manage_zone_resources": "false"
+      },
+      "applications": [
+        {
+          "type": "worker",
+          "platform": "cloudflare",
+          "name": "web-streakjs",
+          "worker_name": "web-streak-platform-diljith-streakjs-qa",
+          "worker_script_path": "iac/cloudflare/scripts/web-streakjs-cf-worker.js",
+          "r2_bucket_name": "web-streak-platform-diljith-streakjs-deployments-qa-001",
+          "secret_vars": [],
+          "env_vars": {
+            "ENVIRONMENT": "qa"
+          },
+          "worker_custom_domains": []
+        },
+        {
+          "type": "pages",
+          "platform": "cloudflare",
+          "name": "cms-sanity",
+          "pages_name": "cms-streak-platform-diljith-sanity-qa",
+          "pages_prod_branch": "qa-release"
+        }
+      ]
+    },
+    "prod": {
+      "cloudflare": {
+        "manage_zone_resources": "false"
+      },
+      "applications": [
+        {
+          "type": "worker",
+          "platform": "cloudflare",
+          "name": "web-streakjs",
+          "worker_name": "web-streak-platform-diljith-streakjs",
+          "worker_script_path": "iac/cloudflare/scripts/web-streakjs-cf-worker.js",
+          "r2_bucket_name": "web-streak-platform-diljith-streakjs-deployments-001",
+          "secret_vars": [],
+          "env_vars": {
+            "ENVIRONMENT": "production"
+          },
+          "worker_custom_domains": []
+        },
+        {
+          "type": "pages",
+          "platform": "cloudflare",
+          "name": "cms-sanity",
+          "pages_name": "cms-streak-platform-diljith-sanity",
+          "pages_prod_branch": "main"
+        }
+      ]
+    }
+  }
+}
