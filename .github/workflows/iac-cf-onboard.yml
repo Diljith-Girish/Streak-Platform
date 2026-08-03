@@ -1,0 +1,98 @@
+name: "IaC: Onboard"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to create and configure (e.g. dev, qa, prod)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      cf_api_token:
+        description: 'Cloudflare API Token for this client.'
+        required: false
+        type: string
+      config_file:
+        description: 'Path to IAC config JSON file'
+        required: false
+        default: '.github/iac-config.json'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  onboard:
+    name: Provision Environment, Variables, and Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout client repo
+        uses: actions/checkout@v4
+
+      - name: Generate token for IaC repo (read)
+        uses: actions/create-github-app-token@v1
+        id: iac-token
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: valoriz
+          repositories: streakjs-common-infra
+
+      - name: Generate token for client repo (write)
+        uses: actions/create-github-app-token@v1
+        id: client-token
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout IaC repo
+        uses: actions/checkout@v4
+        with:
+          repository: valoriz/streakjs-common-infra
+          ref: main
+          token: ${{ steps.iac-token.outputs.token }}
+          path: infra
+
+      - name: Read IAC config file
+        id: config
+        env:
+          ENV_NAME: ${{ github.event.inputs.environment }}
+          CONFIG_FILE: ${{ github.event.inputs.config_file }}
+        run: |
+          chmod +x infra/iac/cloudflare/scripts/read-iac-config.sh
+          infra/iac/cloudflare/scripts/read-iac-config.sh
+
+      - name: Resolve Cloudflare token
+        env:
+          INPUT_CF_API_TOKEN:  ${{ github.event.inputs.cf_api_token }}
+          SECRET_CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          if [[ "$HAS_CLOUDFLARE_APP" != "true" ]]; then
+            echo "CF_API_TOKEN_RESOLVED=" >> "$GITHUB_ENV"
+            echo "CF_API_TOKEN_FROM_INPUT=false" >> "$GITHUB_ENV"
+          elif [[ -n "$INPUT_CF_API_TOKEN" ]]; then
+            echo "CF_API_TOKEN_RESOLVED=$INPUT_CF_API_TOKEN" >> "$GITHUB_ENV"
+            echo "CF_API_TOKEN_FROM_INPUT=true" >> "$GITHUB_ENV"
+          elif [[ -n "$SECRET_CF_API_TOKEN" ]]; then
+            echo "CF_API_TOKEN_RESOLVED=$SECRET_CF_API_TOKEN" >> "$GITHUB_ENV"
+            echo "CF_API_TOKEN_FROM_INPUT=false" >> "$GITHUB_ENV"
+          else
+            echo "❌ cf_api_token is required"
+            exit 1
+          fi
+
+      - name: Run onboarding script
+        env:
+          GH_TOKEN: ${{ steps.client-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ENV_NAME: ${{ github.event.inputs.environment }}
+          CF_API_TOKEN: ${{ env.CF_API_TOKEN_RESOLVED }}
+          CF_API_TOKEN_FROM_INPUT: ${{ env.CF_API_TOKEN_FROM_INPUT }}
+        run: |
+          chmod +x infra/iac/cloudflare/scripts/onboard-client.sh
+          infra/iac/cloudflare/scripts/onboard-client.sh
