@@ -35,6 +35,7 @@ jobs:
       - name: Generate token for IaC repo (read)
         uses: actions/create-github-app-token@v3
         id: iac-token
+        continue-on-error: true
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -44,6 +45,7 @@ jobs:
       - name: Generate token for client repo (write)
         uses: actions/create-github-app-token@v3
         id: client-token
+        continue-on-error: true
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -55,7 +57,7 @@ jobs:
         with:
           repository: valoriz/streakjs-common-infra
           ref: main
-          token: ${{ steps.iac-token.outputs.token }}
+          token: ${{ steps.iac-token.outputs.token || secrets.GH_APP_PRIVATE_KEY || secrets.GITHUB_TOKEN }}
           path: infra
 
       - name: Read IAC config file
@@ -88,7 +90,7 @@ jobs:
 
       - name: Run onboarding script
         env:
-          GH_TOKEN: ${{ steps.client-token.outputs.token }}
+          GH_TOKEN: ${{ steps.client-token.outputs.token || secrets.GH_APP_PRIVATE_KEY || secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           ENV_NAME: ${{ github.event.inputs.environment }}
           CF_API_TOKEN: ${{ env.CF_API_TOKEN_RESOLVED }}
